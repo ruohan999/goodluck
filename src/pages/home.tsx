@@ -38,7 +38,7 @@ async function fetchFundData(fundCode: string): Promise<any> {
     
     // 创建script标签
     const script = document.createElement('script');
-    const url = `/fund/js/${fundCode}.js?rt=${Date.now()}`;
+    const url = `https://fundgz.1234567.com.cn/js/${fundCode}.js?rt=${Date.now()}`;
     script.src = url;
     script.async = true;
     
@@ -131,7 +131,7 @@ export default function HomePage() {
   const [isSale, setIsSale] = useState<boolean>(false);
   const [isPadding, setIsPadding] = useState<boolean>(false);
   
-  const url = `/stock/list=${stockCodes
+  const url = `https://hq.sinajs.cn/list=${stockCodes
     .map((x) => x.code.replace('.', '$')) // 新浪接口中点号替换为$
     .join(',')}`;
 
