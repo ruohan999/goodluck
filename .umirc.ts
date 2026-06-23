@@ -2,7 +2,7 @@ import { defineConfig } from "umi";
 
 export default defineConfig({
   npmClient: 'pnpm',
-  publicPath: '/goodluck/',
+  publicPath: process.env.NODE_ENV === 'production' ? './' : '/',
   base: '/goodluck/',
   proxy: {
     '/stock': {
