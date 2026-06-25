@@ -1,20 +1,11 @@
 # GoodLuck
 
-个人理财助手应用，支持实时查看基金和股票行情数据。
-
 ## 技术栈
 
 - **框架**: Umi 4 + React 18
 - **语言**: TypeScript
 - **构建工具**: Vite
 - **包管理**: pnpm
-
-## 功能特性
-
-- 📊 实时基金数据展示
-- 📈 股票行情实时监控（上证指数、沪深300、创业板等）
-- 🔄 数据自动刷新
-- 📱 响应式布局
 
 ## 本地启动
 
@@ -36,13 +27,6 @@ pnpm install
 ```bash
 pnpm run dev
 ```
-
-3. **访问地址**
-
-- 首页: http://localhost:8000/#/
-- Home 页: http://localhost:8000/#/home
-- Chat 页: http://localhost:8000/#/chat
-- Docs 页: http://localhost:8000/#/docs
 
 ## 部署到远程
 
@@ -81,17 +65,6 @@ git commit -m "Deploy to GitHub Pages"
 git push origin master:gh-pages -f
 ```
 
-## 远程访问地址
-
-部署成功后，通过以下地址访问：
-
-| 页面 | 地址 |
-|------|------|
-| 首页 | https://ruohan999.github.io/goodluck/#/ |
-| Home 页 | https://ruohan999.github.io/goodluck/#/home |
-| Chat 页 | https://ruohan999.github.io/goodluck/#/chat |
-| Docs 页 | https://ruohan999.github.io/goodluck/#/docs |
-
 ## 配置说明
 
 ### `.umirc.ts` 关键配置
@@ -108,11 +81,6 @@ export default defineConfig({
   },
 });
 ```
-
-### API 说明
-
-- **基金数据**: 使用 JSONP 方式请求 `https://fundgz.1234567.com.cn`
-- **股票数据**: 使用 JSONP 方式请求 `https://hq.sinajs.cn`
 
 ## 注意事项
 

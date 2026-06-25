@@ -5,6 +5,8 @@ import codelist from '@/chat/codelist';
 import './index.less';
 import ElShow from '@/components/ElShow';
 
+const isLocal = window.location.hostname.includes('localhost') || window.location.hostname.includes('testdev.taikoohui.com');
+
 const stockCodes = [
   { code: 'sh000001',name: '上证指数', enName: '上SZ' },
   { code: 'sh000300',name: '沪深300', enName: 'HS300' },
@@ -59,6 +61,52 @@ async function fetchFundData(fundCode: string): Promise<any> {
     // 处理脚本加载错误
     script.onerror = () => {
       cleanup();
+      reject(new Error('脚本加载失败'));
+    };
+    
+    // 添加脚本到页面
+    document.body.appendChild(script);
+  });
+}
+
+// 使用 JSONP 方式获取股票数据，避免 CORS 问题
+async function fetchStockDataViaJSONP(stockCodes: string[]): Promise<any> {
+  return new Promise((resolve, reject) => {
+    // 创建全局回调函数
+    const callbackName = `stockDataCallback_${Date.now()}`;
+    (window as any)[callbackName] = (data: any) => {
+      resolve(data);
+      // 清理
+      delete (window as any)[callbackName];
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+    };
+    
+    // 构建请求 URL
+    const codes = stockCodes.map((x) => x.replace('.', '$')).join(',');
+    const url = `https://hq.sinajs.cn/list=${codes}`;
+    
+    // 创建 script 标签
+    const script = document.createElement('script');
+    script.src = url;
+    script.async = true;
+    
+    // 设置超时
+    const timeoutId = setTimeout(() => {
+      delete (window as any)[callbackName];
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+      reject(new Error('请求超时'));
+    }, 10000);
+    
+    // 处理脚本加载错误
+    script.onerror = () => {
+      delete (window as any)[callbackName];
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
       reject(new Error('脚本加载失败'));
     };
     
@@ -130,10 +178,6 @@ export default function HomePage() {
   const [stockOpen, setStockOpen] = useState<boolean>(false);
   const [isSale, setIsSale] = useState<boolean>(false);
   const [isPadding, setIsPadding] = useState<boolean>(false);
-  
-  const url = `https://hq.sinajs.cn/list=${stockCodes
-    .map((x) => x.code.replace('.', '$')) // 新浪接口中点号替换为$
-    .join(',')}`;
 
   console.log('dataSource', JSON.stringify(dataSource));
 
@@ -153,33 +197,96 @@ export default function HomePage() {
     }, 10000);
   }
 
-  // 使用 fetch API获取数据
+  // 根据环境选择不同的获取方式
   async function fetchStockData () {
+    if (isLocal) {
+      // 本地开发环境：使用代理
+      await fetchStockDataViaProxy();
+    } else {
+      // 生产环境：使用 JSONP
+      await fetchStockDataViaJSONP();
+    }
+
+    setTimeout(() => {
+      fetchStockData();
+    }, 3500);
+  }
+
+  // 本地开发环境：通过代理获取股票数据
+  async function fetchStockDataViaProxy () {
     try {
-      // 使用 fetch API
+      const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
+      const url = `/stock/list=${codes}&_t=${Date.now()}`;
+      
       const resp = await fetch(url, {
         method: 'GET',
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
           'Referer': 'https://finance.sina.com.cn/',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, sdch',
-          'Accept-Language': 'zh-CN,zh;q=0.9',
-          'Connection': 'keep-alive',
         },
         credentials: 'include',
       });
+
       if (resp.ok) {
         const textData = await resp.text();
         const stockData = parseSinaStockData(textData);
         setStockData(stockData);
-        console.log('数据:', stockData);
+        console.log('股票数据:', stockData);
       }
     } catch (error: any) {
+      console.error('通过代理获取股票数据失败:', error);
     }
-    setTimeout(() => {
-      fetchStockData();
-    }, 3500);
+  }
+
+  // 生产环境：使用 JSONP 获取股票数据
+  async function fetchStockDataViaJSONP () {
+    try {
+      const script = document.createElement('script');
+      const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
+      const url = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}`;
+      script.src = url;
+      script.async = true;
+
+      await new Promise<void>((resolve, reject) => {
+        script.onload = () => {
+          setTimeout(() => {
+            resolve();
+          }, 200);
+        };
+        script.onerror = () => {
+          reject(new Error('脚本加载失败'));
+        };
+        document.body.appendChild(script);
+      });
+
+      const stockData: any = {};
+      stockCodes.forEach((x) => {
+        const varName = `hq_str_${x.code}`;
+        const dataStr = (window as any)[varName];
+        if (dataStr) {
+          const dataArray = dataStr.split(',');
+          stockData[x.code] = {
+            name: dataArray[0],
+            open: dataArray[1],
+            prevClose: dataArray[2],
+            price: dataArray[3],
+            high: dataArray[4],
+            low: dataArray[5],
+            volume: dataArray[8],
+            amount: dataArray[9],
+          };
+        }
+      });
+
+      setStockData(stockData);
+      console.log('股票数据:', stockData);
+
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+    } catch (error: any) {
+      console.error('通过 JSONP 获取股票数据失败:', error);
+    }
   }
 
   const columns = [
@@ -291,10 +398,17 @@ export default function HomePage() {
       /> */}
       {
         dataList.map((x, index) => (
-          <div key={index} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: 12, color: 'rgba(255, 255, 255, 0.52)' }}>
+          <div key={index} style={{ 
+            display: 'flex', justifyContent: 'space-between', marginBottom: 10, fontSize: 12,
+            color: isLocal ? 'rgba(255, 255, 255, 0.52)' : 'rgba(256, 256, 256, 0.82)' 
+          }}>
             <div>{x.fundcode} {x.name} </div>
             <div>
-              {Number(x.gszzl) > 0 ? <span style={{ color: 'rgba(255, 0, 0, 0.5)' }}>{x.gszzl}</span> : <span style={{ color: 'rgba(7, 193, 96, 0.5)' }}>{x.gszzl}</span>}
+              {Number(x.gszzl) > 0 ? (
+                <span style={{ color: isLocal ? 'rgba(255, 0, 0, 0.5)' : 'rgba(255, 0, 0, 0.82)' }}>{x.gszzl}</span>
+              ) : (
+                <span style={{ color: isLocal ? 'rgba(7, 193, 96, 0.5)' : 'rgba(7, 193, 96, 0.82)' }}>{x.gszzl}</span>
+              )}
             </div>
           </div>
         ))
