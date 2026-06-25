@@ -238,54 +238,75 @@ export default function HomePage() {
     }
   }
 
-  // 生产环境：使用 JSONP 获取股票数据
+  // 生产环境：使用网易财经 API 获取股票数据
   async function fetchStockDataViaJSONP () {
     try {
+      const stockData: any = {};
+      
+      // 网易财经 API（支持 CORS）
+      const codes = stockCodes.map((x) => x.code.replace('sh', '0').replace('sz', '1')).join(',');
+      const url = `https://api.money.126.net/data/feed/${codes}?callback=x`;
+      
+      console.log('网易 API 请求:', url);
+
+      // 使用 JSONP 方式
       const script = document.createElement('script');
-      const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
-      const url = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}`;
       script.src = url;
       script.async = true;
 
+      // 定义回调函数
+      (window as any).x = (data: any) => {
+        console.log('网易返回数据:', data);
+        
+        stockCodes.forEach((x) => {
+          // 网易的代码格式：0开头是上海，1开头是深圳
+          const netCode = x.code.replace('sh', '0').replace('sz', '1');
+          const stockInfo = data[netCode];
+          
+          if (stockInfo) {
+            stockData[x.code] = {
+              name: stockInfo.name || x.name,
+              price: stockInfo.price || '0',
+              prevClose: stockInfo.yestclose || '0',
+              open: stockInfo.open || '0',
+              high: stockInfo.high || '0',
+              low: stockInfo.low || '0',
+              volume: stockInfo.volume || '0',
+              amount: stockInfo.amount || '0',
+            };
+          }
+        });
+        
+        setStockData(stockData);
+        console.log('解析后股票数据:', stockData);
+        
+        // 清理
+        delete (window as any).x;
+        if (script.parentNode) {
+          script.parentNode.removeChild(script);
+        }
+      };
+
       await new Promise<void>((resolve, reject) => {
-        script.onload = () => {
-          setTimeout(() => {
-            resolve();
-          }, 200);
-        };
-        script.onerror = () => {
+        script.onload = () => resolve();
+        script.onerror = (e) => {
+          console.error('网易 API 加载失败:', e);
           reject(new Error('脚本加载失败'));
         };
+        // 设置超时
+        setTimeout(() => resolve(), 3000);
         document.body.appendChild(script);
       });
 
-      const stockData: any = {};
-      stockCodes.forEach((x) => {
-        const varName = `hq_str_${x.code}`;
-        const dataStr = (window as any)[varName];
-        if (dataStr) {
-          const dataArray = dataStr.split(',');
-          stockData[x.code] = {
-            name: dataArray[0],
-            open: dataArray[1],
-            prevClose: dataArray[2],
-            price: dataArray[3],
-            high: dataArray[4],
-            low: dataArray[5],
-            volume: dataArray[8],
-            amount: dataArray[9],
-          };
+      // 如果 3 秒后还没返回数据，尝试从全局变量读取
+      setTimeout(() => {
+        if (Object.keys(stockData).length === 0) {
+          console.log('网易 API 未返回数据，尝试读取全局变量');
         }
-      });
-
-      setStockData(stockData);
-      console.log('股票数据:', stockData);
-
-      if (script.parentNode) {
-        script.parentNode.removeChild(script);
-      }
+      }, 3000);
+      
     } catch (error: any) {
-      console.error('通过 JSONP 获取股票数据失败:', error);
+      console.error('获取股票数据失败:', error);
     }
   }
 
