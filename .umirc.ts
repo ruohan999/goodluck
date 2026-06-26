@@ -3,7 +3,7 @@ import { defineConfig } from "umi";
 export default defineConfig({
   npmClient: 'pnpm',
   publicPath: process.env.NODE_ENV === 'production' ? './' : '/',
-  base: process.env.NODE_ENV === 'production' ? '/goodluck/' : '/',
+  base: '/',
   history: {
     type: 'hash',
   },

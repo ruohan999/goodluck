@@ -69,52 +69,6 @@ async function fetchFundData(fundCode: string): Promise<any> {
   });
 }
 
-// 使用 JSONP 方式获取股票数据，避免 CORS 问题
-async function fetchStockDataViaJSONP(stockCodes: string[]): Promise<any> {
-  return new Promise((resolve, reject) => {
-    // 创建全局回调函数
-    const callbackName = `stockDataCallback_${Date.now()}`;
-    (window as any)[callbackName] = (data: any) => {
-      resolve(data);
-      // 清理
-      delete (window as any)[callbackName];
-      if (script.parentNode) {
-        script.parentNode.removeChild(script);
-      }
-    };
-    
-    // 构建请求 URL
-    const codes = stockCodes.map((x) => x.replace('.', '$')).join(',');
-    const url = `https://hq.sinajs.cn/list=${codes}`;
-    
-    // 创建 script 标签
-    const script = document.createElement('script');
-    script.src = url;
-    script.async = true;
-    
-    // 设置超时
-    const timeoutId = setTimeout(() => {
-      delete (window as any)[callbackName];
-      if (script.parentNode) {
-        script.parentNode.removeChild(script);
-      }
-      reject(new Error('请求超时'));
-    }, 10000);
-    
-    // 处理脚本加载错误
-    script.onerror = () => {
-      delete (window as any)[callbackName];
-      if (script.parentNode) {
-        script.parentNode.removeChild(script);
-      }
-      reject(new Error('脚本加载失败'));
-    };
-    
-    // 添加脚本到页面
-    document.body.appendChild(script);
-  });
-}
-
 // 顺序获取多个数据
 async function sequentialFetchWithFixedCallback(fundCodes: string[]): Promise<any[]> {
   const results = [];
