@@ -238,112 +238,75 @@ export default function HomePage() {
     }
   }
 
-  // 生产环境：使用 CORS 代理获取股票数据
+  // 生产环境：从静态 JSON 文件获取股票数据（由 GitHub Action 定期更新）
   async function fetchStockDataViaJSONP () {
     try {
-      const stockData: any = {};
+      // 从 gh-pages 分支获取静态 JSON 文件
+      const url = `${window.location.origin}${window.location.pathname}stock_data.json?_t=${Date.now()}`;
       
-      // 使用 CORS 代理访问新浪 API
-      const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
-      const sinaUrl = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}`;
-      
-      // 使用 CORS 代理绕过跨域限制
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(sinaUrl)}`;
-      
-      console.log('CORS 代理请求:', proxyUrl);
+      console.log('获取股票数据:', url);
 
-      const resp = await fetch(proxyUrl, {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-      });
+      const resp = await fetch(url);
 
       if (resp.ok) {
-        const textData = await resp.text();
-        console.log('返回数据:', textData.substring(0, 200));
-        
-        // 解析新浪返回的数据格式
-        const lines = textData.split('\n');
-        stockCodes.forEach((x) => {
-          for (const line of lines) {
-            if (line.includes(`hq_str_${x.code}`)) {
-              const match = line.match(/"([^"]+)"/);
-              if (match) {
-                const dataArray = match[1].split(',');
-                if (dataArray.length > 10) {
-                  stockData[x.code] = {
-                    name: dataArray[0] || x.name,
-                    price: dataArray[3] || '0',
-                    prevClose: dataArray[2] || '0',
-                    open: dataArray[1] || '0',
-                    high: dataArray[4] || '0',
-                    low: dataArray[5] || '0',
-                    volume: dataArray[8] || '0',
-                    amount: dataArray[9] || '0',
-                  };
-                }
-              }
-              break;
-            }
-          }
-        });
-        
-        setStockData(stockData);
+        const stockData = await resp.json();
         console.log('股票数据:', stockData);
+        setStockData(stockData);
       } else {
         console.error('请求失败:', resp.status);
+        
+        // 如果 JSON 文件不存在，尝试 JS 文件
+        await fetchStockDataViaJSFile();
       }
     } catch (error: any) {
       console.error('获取股票数据失败:', error);
       
-      // 备用方案：尝试另一个 CORS 代理
+      // 备用：尝试直接解析 JS 文件
       try {
-        await fetchStockDataViaBackupProxy();
+        await fetchStockDataViaJSFile();
       } catch (backupError) {
         console.error('备用方案也失败:', backupError);
       }
     }
   }
 
-  // 备用 CORS 代理
-  async function fetchStockDataViaBackupProxy () {
-    const stockData: any = {};
-    const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
-    const sinaUrl = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}`;
-    
-    // 使用备用 CORS 代理
-    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(sinaUrl)}`;
-    
-    console.log('备用 CORS 代理请求:', proxyUrl);
-    
-    const resp = await fetch(proxyUrl);
-    if (resp.ok) {
-      const textData = await resp.text();
-      stockCodes.forEach((x) => {
-        const lines = textData.split('\n');
-        for (const line of lines) {
-          if (line.includes(`hq_str_${x.code}`)) {
-            const match = line.match(/"([^"]+)"/);
-            if (match) {
-              const dataArray = match[1].split(',');
-              stockData[x.code] = {
-                name: dataArray[0] || x.name,
-                price: dataArray[3] || '0',
-                prevClose: dataArray[2] || '0',
-                open: dataArray[1] || '0',
-                high: dataArray[4] || '0',
-                low: dataArray[5] || '0',
-                volume: dataArray[8] || '0',
-                amount: dataArray[9] || '0',
-              };
-            }
-            break;
+  // 从静态 JS 文件获取股票数据
+  async function fetchStockDataViaJSFile () {
+    try {
+      const url = `${window.location.origin}${window.location.pathname}stock_data.js?_t=${Date.now()}`;
+      
+      console.log('获取股票数据(JS文件):', url);
+
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const textData = await resp.text();
+        const stockData: any = {};
+        
+        stockCodes.forEach((x) => {
+          // 使用正则匹配新浪数据格式
+          const regex = new RegExp(`hq_str_${x.code}="([^"]+)"`);
+          const match = textData.match(regex);
+          
+          if (match) {
+            const dataArray = match[1].split(',');
+            stockData[x.code] = {
+              name: dataArray[0] || x.name,
+              price: dataArray[3] || '0',
+              prevClose: dataArray[2] || '0',
+              open: dataArray[1] || '0',
+              high: dataArray[4] || '0',
+              low: dataArray[5] || '0',
+              volume: dataArray[8] || '0',
+              amount: dataArray[9] || '0',
+            };
           }
-        }
-      });
-      setStockData(stockData);
-      console.log('备用方案股票数据:', stockData);
+        });
+        
+        setStockData(stockData);
+        console.log('从JS文件解析的股票数据:', stockData);
+      }
+    } catch (error) {
+      console.error('从JS文件获取股票数据失败:', error);
     }
   }
 

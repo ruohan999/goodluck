@@ -1,0 +1,66 @@
+name: Fetch Stock Data
+
+on:
+  schedule:
+    # 每5分钟执行一次（股票交易时间内）
+    - cron: '*/5 9-11,13-15 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+
+      - name: Fetch stock data
+        run: |
+          # 定义股票代码
+          CODES="sh000001,sh000300,sz399006,sh000688,sz399102,sh000687"
+          
+          # 抓取新浪股票数据
+          curl -s -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+               -H "Referer: https://finance.sina.com.cn/" \
+               "https://hq.sinajs.cn/list=$CODES" > stock_data.js
+
+          # 转换为 JSON 格式
+          python3 -c "
+import re
+import json
+
+with open('stock_data.js', 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# 解析新浪数据格式
+stocks = {}
+patterns = re.findall(r'var hq_str_(\w+)=\"([^\"]+)\"', content)
+
+for code, data_str in patterns:
+    data = data_str.split(',')
+    if len(data) >= 10:
+        stocks[code] = {
+            'name': data[0],
+            'open': data[1],
+            'prevClose': data[2],
+            'price': data[3],
+            'high': data[4],
+            'low': data[5],
+            'volume': data[8],
+            'amount': data[9]
+        }
+
+with open('stock_data.json', 'w', encoding='utf-8') as f:
+    json.dump(stocks, f, ensure_ascii=False, indent=2)
+
+print('股票数据:', json.dumps(stocks, ensure_ascii=False))
+"
+
+      - name: Commit and push
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add stock_data.js stock_data.json
+          git commit -m "Update stock data $(date -Iseconds)"
+          git push origin gh-pages
