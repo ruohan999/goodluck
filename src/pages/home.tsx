@@ -238,46 +238,39 @@ export default function HomePage() {
     }
   }
 
-  // 生产环境：使用 JSONP 方式获取股票数据
+  // 生产环境：使用 CORS 代理获取新浪股票数据
   async function fetchStockDataViaJSONP () {
     try {
       const stockData: any = {};
-      
-      // 创建 script 标签
-      const script = document.createElement('script');
       const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
-      const url = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}`;
-      script.src = url;
-      script.async = true;
       
-      console.log('股票数据请求:', url);
-
-      // 等待脚本加载完成
-      await new Promise<void>((resolve, reject) => {
-        script.onload = () => {
-          // 延迟一点确保脚本执行完成
-          setTimeout(() => {
-            resolve();
-          }, 500);
-        };
-        script.onerror = (e) => {
-          console.error('脚本加载失败:', e);
-          reject(new Error('脚本加载失败'));
-        };
-        // 超时处理
-        setTimeout(() => {
-          resolve();
-        }, 5000);
-        document.body.appendChild(script);
+      // 使用 CORS 代理获取新浪数据
+      const sinaUrl = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(sinaUrl)}`;
+      
+      console.log('股票数据请求:', proxyUrl);
+      
+      const resp = await fetch(proxyUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://finance.sina.com.cn/',
+        },
       });
-
-      // 从全局变量中读取数据（新浪 API 返回的格式是 var hq_str_sh000001="..."）
+      
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      
+      const textData = await resp.text();
+      console.log('新浪返回数据:', textData.substring(0, 200));
+      
+      // 解析新浪数据格式
       stockCodes.forEach((x) => {
-        const varName = `hq_str_${x.code}`;
-        const dataStr = (window as any)[varName];
+        const regex = new RegExp(`hq_str_${x.code}="([^"]+)"`);
+        const match = textData.match(regex);
         
-        if (dataStr && dataStr !== 'hq_str_nostock') {
-          const dataArray = dataStr.split(',');
+        if (match) {
+          const dataArray = match[1].split(',');
           stockData[x.code] = {
             name: x.name,
             open: dataArray[1] || '0',
@@ -290,30 +283,86 @@ export default function HomePage() {
           };
         }
       });
-
-      // 如果 JSONP 失败，尝试从静态文件获取
+      
+      // 如果代理失败，尝试其他代理或静态文件
       if (Object.keys(stockData).length === 0) {
-        console.log('JSONP 未获取到数据，尝试静态文件');
-        await fetchStockDataFromStatic();
+        console.log('CORS 代理未获取到数据，尝试备用代理');
+        await fetchStockDataViaBackupProxy();
         return;
       }
-
+      
       setStockData(stockData);
       console.log('股票数据:', stockData);
-
-      // 清理 script 标签
-      if (script.parentNode) {
-        script.parentNode.removeChild(script);
-      }
-    } catch (error: any) {
-      console.error('获取股票数据失败:', error);
       
-      // 备用：从静态文件获取
+    } catch (error: any) {
+      console.error('通过 CORS 代理获取股票数据失败:', error);
+      
+      // 备用方案
       try {
-        await fetchStockDataFromStatic();
+        await fetchStockDataViaBackupProxy();
       } catch (backupError) {
-        console.error('备用方案也失败:', backupError);
+        console.error('备用代理也失败:', backupError);
+        try {
+          await fetchStockDataFromStatic();
+        } catch (staticError) {
+          console.error('静态文件也失败:', staticError);
+        }
       }
+    }
+  }
+  
+  // 使用备用 CORS 代理
+  async function fetchStockDataViaBackupProxy () {
+    try {
+      const stockData: any = {};
+      const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
+      
+      // 使用另一个 CORS 代理
+      const sinaUrl = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}`;
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(sinaUrl)}`;
+      
+      console.log('备用代理请求:', proxyUrl);
+      
+      const resp = await fetch(proxyUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
+      
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+      
+      const textData = await resp.text();
+      
+      stockCodes.forEach((x) => {
+        const regex = new RegExp(`hq_str_${x.code}="([^"]+)"`);
+        const match = textData.match(regex);
+        
+        if (match) {
+          const dataArray = match[1].split(',');
+          stockData[x.code] = {
+            name: x.name,
+            open: dataArray[1] || '0',
+            prevClose: dataArray[2] || '0',
+            price: dataArray[3] || '0',
+            high: dataArray[4] || '0',
+            low: dataArray[5] || '0',
+            volume: dataArray[8] || '0',
+            amount: dataArray[9] || '0',
+          };
+        }
+      });
+      
+      if (Object.keys(stockData).length > 0) {
+        setStockData(stockData);
+        console.log('备用代理股票数据:', stockData);
+      } else {
+        await fetchStockDataFromStatic();
+      }
+    } catch (error) {
+      console.error('备用代理失败:', error);
+      await fetchStockDataFromStatic();
     }
   }
 
