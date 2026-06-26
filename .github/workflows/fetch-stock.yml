@@ -30,7 +30,17 @@ jobs:
 import re
 import json
 
-with open('stock_data.js', 'r', encoding='utf-8') as f:
+# 股票名称映射（新浪返回的中文可能有编码问题）
+stock_names = {
+    'sh000001': '上证指数',
+    'sh000300': '沪深300',
+    'sz399006': '创业板指',
+    'sh000688': '科创50',
+    'sz399102': '创业板综',
+    'sh000687': '科创综指'
+}
+
+with open('stock_data.js', 'r', encoding='gbk', errors='ignore') as f:
     content = f.read()
 
 # 解析新浪数据格式
@@ -41,7 +51,7 @@ for code, data_str in patterns:
     data = data_str.split(',')
     if len(data) >= 10:
         stocks[code] = {
-            'name': data[0],
+            'name': stock_names.get(code, data[0]),
             'open': data[1],
             'prevClose': data[2],
             'price': data[3],
