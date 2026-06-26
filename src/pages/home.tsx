@@ -238,75 +238,98 @@ export default function HomePage() {
     }
   }
 
-  // 生产环境：从静态 JSON 文件获取股票数据（由 GitHub Action 定期更新）
+  // 生产环境：使用 JSONP 方式获取股票数据
   async function fetchStockDataViaJSONP () {
     try {
-      // 从 gh-pages 分支获取静态 JSON 文件
-      const url = `${window.location.origin}${window.location.pathname}stock_data.json?_t=${Date.now()}`;
+      const stockData: any = {};
       
-      console.log('获取股票数据:', url);
+      // 创建 script 标签
+      const script = document.createElement('script');
+      const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
+      const url = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}`;
+      script.src = url;
+      script.async = true;
+      
+      console.log('股票数据请求:', url);
 
-      const resp = await fetch(url);
+      // 等待脚本加载完成
+      await new Promise<void>((resolve, reject) => {
+        script.onload = () => {
+          // 延迟一点确保脚本执行完成
+          setTimeout(() => {
+            resolve();
+          }, 500);
+        };
+        script.onerror = (e) => {
+          console.error('脚本加载失败:', e);
+          reject(new Error('脚本加载失败'));
+        };
+        // 超时处理
+        setTimeout(() => {
+          resolve();
+        }, 5000);
+        document.body.appendChild(script);
+      });
 
-      if (resp.ok) {
-        const stockData = await resp.json();
-        console.log('股票数据:', stockData);
-        setStockData(stockData);
-      } else {
-        console.error('请求失败:', resp.status);
+      // 从全局变量中读取数据（新浪 API 返回的格式是 var hq_str_sh000001="..."）
+      stockCodes.forEach((x) => {
+        const varName = `hq_str_${x.code}`;
+        const dataStr = (window as any)[varName];
         
-        // 如果 JSON 文件不存在，尝试 JS 文件
-        await fetchStockDataViaJSFile();
+        if (dataStr && dataStr !== 'hq_str_nostock') {
+          const dataArray = dataStr.split(',');
+          stockData[x.code] = {
+            name: x.name,
+            open: dataArray[1] || '0',
+            prevClose: dataArray[2] || '0',
+            price: dataArray[3] || '0',
+            high: dataArray[4] || '0',
+            low: dataArray[5] || '0',
+            volume: dataArray[8] || '0',
+            amount: dataArray[9] || '0',
+          };
+        }
+      });
+
+      // 如果 JSONP 失败，尝试从静态文件获取
+      if (Object.keys(stockData).length === 0) {
+        console.log('JSONP 未获取到数据，尝试静态文件');
+        await fetchStockDataFromStatic();
+        return;
+      }
+
+      setStockData(stockData);
+      console.log('股票数据:', stockData);
+
+      // 清理 script 标签
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
       }
     } catch (error: any) {
       console.error('获取股票数据失败:', error);
       
-      // 备用：尝试直接解析 JS 文件
+      // 备用：从静态文件获取
       try {
-        await fetchStockDataViaJSFile();
+        await fetchStockDataFromStatic();
       } catch (backupError) {
         console.error('备用方案也失败:', backupError);
       }
     }
   }
 
-  // 从静态 JS 文件获取股票数据
-  async function fetchStockDataViaJSFile () {
+  // 从静态 JSON 文件获取股票数据（备用方案）
+  async function fetchStockDataFromStatic () {
     try {
-      const url = `${window.location.origin}${window.location.pathname}stock_data.js?_t=${Date.now()}`;
-      
-      console.log('获取股票数据(JS文件):', url);
-
+      const url = `${window.location.origin}${window.location.pathname}stock_data.json?_t=${Date.now()}`;
       const resp = await fetch(url);
+      
       if (resp.ok) {
-        const textData = await resp.text();
-        const stockData: any = {};
-        
-        stockCodes.forEach((x) => {
-          // 使用正则匹配新浪数据格式
-          const regex = new RegExp(`hq_str_${x.code}="([^"]+)"`);
-          const match = textData.match(regex);
-          
-          if (match) {
-            const dataArray = match[1].split(',');
-            stockData[x.code] = {
-              name: dataArray[0] || x.name,
-              price: dataArray[3] || '0',
-              prevClose: dataArray[2] || '0',
-              open: dataArray[1] || '0',
-              high: dataArray[4] || '0',
-              low: dataArray[5] || '0',
-              volume: dataArray[8] || '0',
-              amount: dataArray[9] || '0',
-            };
-          }
-        });
-        
+        const stockData = await resp.json();
         setStockData(stockData);
-        console.log('从JS文件解析的股票数据:', stockData);
+        console.log('从静态文件获取股票数据:', stockData);
       }
     } catch (error) {
-      console.error('从JS文件获取股票数据失败:', error);
+      console.error('从静态文件获取股票数据失败:', error);
     }
   }
 
