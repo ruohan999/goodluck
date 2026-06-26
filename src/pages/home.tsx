@@ -238,75 +238,112 @@ export default function HomePage() {
     }
   }
 
-  // 生产环境：使用网易财经 API 获取股票数据
+  // 生产环境：使用 CORS 代理获取股票数据
   async function fetchStockDataViaJSONP () {
     try {
       const stockData: any = {};
       
-      // 网易财经 API（支持 CORS）
-      const codes = stockCodes.map((x) => x.code.replace('sh', '0').replace('sz', '1')).join(',');
-      const url = `https://api.money.126.net/data/feed/${codes}?callback=x`;
+      // 使用 CORS 代理访问新浪 API
+      const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
+      const sinaUrl = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}`;
       
-      console.log('网易 API 请求:', url);
+      // 使用 CORS 代理绕过跨域限制
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(sinaUrl)}`;
+      
+      console.log('CORS 代理请求:', proxyUrl);
 
-      // 使用 JSONP 方式
-      const script = document.createElement('script');
-      script.src = url;
-      script.async = true;
+      const resp = await fetch(proxyUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
 
-      // 定义回调函数
-      (window as any).x = (data: any) => {
-        console.log('网易返回数据:', data);
+      if (resp.ok) {
+        const textData = await resp.text();
+        console.log('返回数据:', textData.substring(0, 200));
         
+        // 解析新浪返回的数据格式
+        const lines = textData.split('\n');
         stockCodes.forEach((x) => {
-          // 网易的代码格式：0开头是上海，1开头是深圳
-          const netCode = x.code.replace('sh', '0').replace('sz', '1');
-          const stockInfo = data[netCode];
-          
-          if (stockInfo) {
-            stockData[x.code] = {
-              name: stockInfo.name || x.name,
-              price: stockInfo.price || '0',
-              prevClose: stockInfo.yestclose || '0',
-              open: stockInfo.open || '0',
-              high: stockInfo.high || '0',
-              low: stockInfo.low || '0',
-              volume: stockInfo.volume || '0',
-              amount: stockInfo.amount || '0',
-            };
+          for (const line of lines) {
+            if (line.includes(`hq_str_${x.code}`)) {
+              const match = line.match(/"([^"]+)"/);
+              if (match) {
+                const dataArray = match[1].split(',');
+                if (dataArray.length > 10) {
+                  stockData[x.code] = {
+                    name: dataArray[0] || x.name,
+                    price: dataArray[3] || '0',
+                    prevClose: dataArray[2] || '0',
+                    open: dataArray[1] || '0',
+                    high: dataArray[4] || '0',
+                    low: dataArray[5] || '0',
+                    volume: dataArray[8] || '0',
+                    amount: dataArray[9] || '0',
+                  };
+                }
+              }
+              break;
+            }
           }
         });
         
         setStockData(stockData);
-        console.log('解析后股票数据:', stockData);
-        
-        // 清理
-        delete (window as any).x;
-        if (script.parentNode) {
-          script.parentNode.removeChild(script);
-        }
-      };
-
-      await new Promise<void>((resolve, reject) => {
-        script.onload = () => resolve();
-        script.onerror = (e) => {
-          console.error('网易 API 加载失败:', e);
-          reject(new Error('脚本加载失败'));
-        };
-        // 设置超时
-        setTimeout(() => resolve(), 3000);
-        document.body.appendChild(script);
-      });
-
-      // 如果 3 秒后还没返回数据，尝试从全局变量读取
-      setTimeout(() => {
-        if (Object.keys(stockData).length === 0) {
-          console.log('网易 API 未返回数据，尝试读取全局变量');
-        }
-      }, 3000);
-      
+        console.log('股票数据:', stockData);
+      } else {
+        console.error('请求失败:', resp.status);
+      }
     } catch (error: any) {
       console.error('获取股票数据失败:', error);
+      
+      // 备用方案：尝试另一个 CORS 代理
+      try {
+        await fetchStockDataViaBackupProxy();
+      } catch (backupError) {
+        console.error('备用方案也失败:', backupError);
+      }
+    }
+  }
+
+  // 备用 CORS 代理
+  async function fetchStockDataViaBackupProxy () {
+    const stockData: any = {};
+    const codes = stockCodes.map((x) => x.code.replace('.', '$')).join(',');
+    const sinaUrl = `https://hq.sinajs.cn/list=${codes}&_t=${Date.now()}`;
+    
+    // 使用备用 CORS 代理
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(sinaUrl)}`;
+    
+    console.log('备用 CORS 代理请求:', proxyUrl);
+    
+    const resp = await fetch(proxyUrl);
+    if (resp.ok) {
+      const textData = await resp.text();
+      stockCodes.forEach((x) => {
+        const lines = textData.split('\n');
+        for (const line of lines) {
+          if (line.includes(`hq_str_${x.code}`)) {
+            const match = line.match(/"([^"]+)"/);
+            if (match) {
+              const dataArray = match[1].split(',');
+              stockData[x.code] = {
+                name: dataArray[0] || x.name,
+                price: dataArray[3] || '0',
+                prevClose: dataArray[2] || '0',
+                open: dataArray[1] || '0',
+                high: dataArray[4] || '0',
+                low: dataArray[5] || '0',
+                volume: dataArray[8] || '0',
+                amount: dataArray[9] || '0',
+              };
+            }
+            break;
+          }
+        }
+      });
+      setStockData(stockData);
+      console.log('备用方案股票数据:', stockData);
     }
   }
 
