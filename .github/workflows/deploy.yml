@@ -10,17 +10,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: 'pnpm'
 
       - name: Install pnpm
-        run: npm install -g pnpm
+        run: |
+          npm install -g pnpm@9
+          pnpm --version
 
       - name: Install dependencies
-        run: pnpm install
+        run: |
+          pnpm install --prefer-offline --shamefully-hoist 2>&1 | head -100
 
       - name: Build
         run: pnpm run build
