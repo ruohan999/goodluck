@@ -2,8 +2,8 @@ import { defineConfig } from "umi";
 
 export default defineConfig({
   npmClient: 'pnpm',
-  publicPath: '/',
-  base: '/',
+  publicPath: '/goodluck/',
+  base: '/goodluck/',
   proxy: {
     '/stock': {
       target: 'https://hq.sinajs.cn',
