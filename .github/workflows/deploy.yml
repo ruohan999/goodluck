@@ -2,7 +2,8 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -11,55 +12,27 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-          run_install: false
-
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      - name: Setup pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+          node-version: 20
+          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install
+        env:
+          NODE_OPTIONS: '--max_old_space_size=4096'
 
       - name: Build
         run: pnpm run build
-
-      - name: Create .nojekyll
-        run: touch dist/.nojekyll
-
-      - name: Create stock_data.json
-        run: |
-          cat > dist/stock_data.json << 'EOF'
-          {
-            "sh000001": {"name": "上证指数", "open": "4098.69", "prevClose": "4120.28", "price": "4032.30", "high": "4099.78", "low": "4007.86", "volume": "446425476", "amount": "1101495704821"},
-            "sh000300": {"name": "沪深300", "open": "4981.83", "prevClose": "5006.98", "price": "4923.15", "high": "4983.20", "low": "4891.02", "volume": "215678900", "amount": "567890123456"},
-            "sz399006": {"name": "创业板指", "open": "2356.78", "prevClose": "2380.45", "price": "2320.15", "high": "2358.90", "low": "2305.67", "volume": "123456789", "amount": "234567890123"},
-            "sh000688": {"name": "科创50", "open": "987.65", "prevClose": "1002.34", "price": "975.23", "high": "988.76", "low": "965.43", "volume": "45678901", "amount": "89012345678"},
-            "sz399102": {"name": "创业板综", "open": "3456.78", "prevClose": "3480.12", "price": "3420.56", "high": "3458.90", "low": "3405.34", "volume": "87654321", "amount": "123456789012"},
-            "sh000687": {"name": "科创综指", "open": "1234.56", "prevClose": "1250.78", "price": "1215.34", "high": "1236.78", "low": "1205.12", "volume": "23456789", "amount": "45678901234"}
-          }
-          EOF
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
