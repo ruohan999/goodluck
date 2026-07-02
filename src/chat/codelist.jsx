@@ -284,12 +284,10 @@ export default [
   },
   {
     "fundcode": "006503",
-    "name": "财通集成电路产业股票C",
-    "isPadding": true
+    "name": "财通集成电路产业股票C"
   },
   {
     "fundcode": "021528",
-    "name": "财通成长优选混合C",
-    "isPadding": true
+    "name": "财通成长优选混合C"
   },
 ]

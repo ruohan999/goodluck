@@ -21,12 +21,21 @@ const stockCodes = [
   // { code: 'sz399330', name: '深证100' },
 ];
 
-// 在组件外部定义全局的jsonpgz函数
+// 在组件外部定义全局的jsonpgz函数和股票回调函数
 let jsonpgzPromiseResolve: ((data: any) => void) | null = null;
+let stockCallbackPromiseResolve: ((data: any) => void) | null = null;
+let stockScriptId = 0;
 (window as any).jsonpgz = (data: any) => {
   if (jsonpgzPromiseResolve) {
     jsonpgzPromiseResolve(data);
     jsonpgzPromiseResolve = null;
+  }
+};
+// 东方财富股票数据回调函数（JSONP）
+(window as any).stockCallback = (data: any) => {
+  if (stockCallbackPromiseResolve) {
+    stockCallbackPromiseResolve(data);
+    stockCallbackPromiseResolve = null;
   }
 };
 
@@ -38,7 +47,8 @@ async function fetchFundData(fundCode: string): Promise<any> {
     
     // 创建script标签
     const script = document.createElement('script');
-    const url = `/fund/js/${fundCode}.js?rt=${Date.now()}`;
+    // 生产环境直接访问真实API地址（绕过代理）
+    const url = `https://fundgz.1234567.com.cn/js/${fundCode}.js?rt=${Date.now()}`;
     script.src = url;
     script.async = true;
     
@@ -86,38 +96,37 @@ async function sequentialFetchWithFixedCallback(fundCodes: string[]): Promise<an
   return results;
 }
 
-// 解析新浪财经返回的JavaScript格式数据
-function parseSinaStockData(textData: string) {
+// 解析东方财富返回的JSON数据格式（修正字段映射）
+// 东方财富字段映射：f43=最新价, f44=最高, f45=最低, f46=今开, f47=成交量, f48=成交额, f57=代码, f58=名称, f60=昨收, f169=涨跌额, f170=涨跌幅
+function parseSinaStockData(data: any) {
   const result: any = {};
-  const lines = textData.split('\n');
   
-  lines.forEach(line => {
-    line = line.trim();
-    if (!line) return;
+  if (data && data.data) {
+    const item = data.data;
+    const code = item.f57 || '';
     
-    // 匹配 var hq_str_code="数据,数据,..."; 格式
-    const match = line.match(/var hq_str_(\w+)="([^"]+)"/);
-    if (match) {
-      const code = match[1];
-      const dataStr = match[2];
-      const dataArray = dataStr.split(',');
-      
-      // 构建股票数据对象
-      // 注意：不同类型的股票数据字段可能不同，这里提供一个通用的解析
-      result[code] = {
-        name: dataArray[0],
-        open: dataArray[1],
-        prevClose: dataArray[2],
-        price: dataArray[3],
-        high: dataArray[4],
-        low: dataArray[5],
-        volume: dataArray[8],
-        amount: dataArray[9],
-        // 可以根据需要添加更多字段
-      };
+    // 构建完整code如sh000001
+    // 指数代码000开头是上海，普通股票6开头是上海，其他是深圳
+    let marketPrefix = 'sz';
+    if (code.startsWith('0') || code.startsWith('6') || code.startsWith('9')) {
+      marketPrefix = 'sh';
     }
-  });
-
+    const fullCode = `${marketPrefix}${code}`;
+    
+    result[fullCode] = {
+      name: item.f58,      // 股票名称
+      price: item.f43,     // 当前价格（最新价）
+      prevClose: item.f60, // 昨收
+      open: item.f46,      // 今开
+      high: item.f44,      // 最高
+      low: item.f45,       // 最低
+      volume: item.f47,    // 成交量（手）
+      amount: item.f48,    // 成交额（万元）
+      change: item.f169,   // 涨跌额
+      changePercent: item.f170 / 100, // 涨跌幅（百分比，需除以100）
+    };
+  }
+  
   return result;
 }
 
@@ -131,7 +140,7 @@ export default function HomePage() {
   const [isSale, setIsSale] = useState<boolean>(false);
   const [isPadding, setIsPadding] = useState<boolean>(false);
   
-  const url = `/stock/list=${stockCodes
+  const url = `https://hq.sinajs.cn/list=${stockCodes
     .map((x) => x.code.replace('.', '$')) // 新浪接口中点号替换为$
     .join(',')}`;
 
@@ -153,33 +162,77 @@ export default function HomePage() {
     }, 10000);
   }
 
-  // 使用 fetch API获取数据
+  // 使用东方财富JSONP获取股票数据（直接使用原始代码作为键）
   async function fetchStockData () {
     try {
-      // 使用 fetch API
-      const resp = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Referer': 'https://finance.sina.com.cn/',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Encoding': 'gzip, deflate, sdch',
-          'Accept-Language': 'zh-CN,zh;q=0.9',
-          'Connection': 'keep-alive',
-        },
-        credentials: 'include',
-      });
-      if (resp.ok) {
-        const textData = await resp.text();
-        const stockData = parseSinaStockData(textData);
-        setStockData(stockData);
-        console.log('数据:', stockData);
+      const results: any = {};
+      
+      // 逐个查询股票数据，直接使用原始stock.code作为键
+      for (const stock of stockCodes) {
+        const data = await fetchSingleStock(stock.code);
+        if (data && data.data) {
+          const item = data.data;
+          // 东方财富API返回的数值是乘以100后的整数，需要除以100得到实际值
+          // f43/f44/f45/f46/f60/f169 除以100，f170 除以100（已经是百分比的100倍）
+          results[stock.code] = {
+            name: item.f58,      // 股票名称
+            price: item.f43 / 100,           // 当前价格（最新价）208259/100=2082.59
+            prevClose: item.f60 / 100,       // 昨收 215304/100=2153.04
+            open: item.f46 / 100,            // 今开
+            high: item.f44 / 100,            // 最高
+            low: item.f45 / 100,             // 最低
+            volume: item.f47,                 // 成交量（手）
+            amount: item.f48,                 // 成交额（元）
+            change: item.f169 / 100,          // 涨跌额 -7045/100=-70.45
+            changePercent: item.f170 / 100,   // 涨跌幅（百分比）-327/100=-3.27%
+          };
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
+      
+      setStockData(results);
+      console.log('股票数据:', results);
     } catch (error: any) {
+      console.error('获取股票数据失败:', error);
     }
     setTimeout(() => {
       fetchStockData();
-    }, 3500);
+    }, 5000); // 5秒自动刷新
+  }
+  
+  // 使用东方财富JSONP接口查询单个股票数据
+  function fetchSingleStock(code: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      stockCallbackPromiseResolve = resolve;
+      
+      const script = document.createElement('script');
+      const prefix = code.startsWith('sh') ? '1.' : '0.';
+      const secid = `${prefix}${code.substring(2)}`;
+      
+      // 东方财富push2 API，支持cb回调参数，需要f60（昨收）字段
+      script.src = `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170&cb=stockCallback&_=${Date.now()}`;
+      script.async = true;
+      script.id = `stock-script-${++stockScriptId}`;
+      
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new Error('请求超时'));
+      }, 5000);
+      
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        if (script.parentNode) {
+          script.parentNode.removeChild(script);
+        }
+      };
+      
+      script.onerror = () => {
+        cleanup();
+        reject(new Error('脚本加载失败'));
+      };
+      
+      document.body.appendChild(script);
+    });
   }
 
   const columns = [
@@ -224,7 +277,7 @@ export default function HomePage() {
           >
             <div style={{ fontSize: '11px' }}>
               <div style={{ fontWeight: 'bold', margin: '4px 0' }}>
-                {x.enName}  
+                {x.enName}&nbsp;&nbsp; {item?.price?.toFixed(2) || '-'}
                 {/* {x.code} */}
               </div>
               <div style={{ marginBottom: '6px' }}>

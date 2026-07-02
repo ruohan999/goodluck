@@ -4,6 +4,18 @@ export default defineConfig({
   npmClient: 'pnpm',
   publicPath: '/goodluck/',
   base: '/goodluck/',
+  routes: [
+    {
+      path: '/',
+      component: '@/layouts/index',
+      routes: [
+        { path: '/', redirect: '/home' },
+        { path: '/home', component: '@/pages/home' },
+        { path: '/chat', component: '@/pages/chat' },
+        { path: '/docs', component: '@/pages/docs' },
+      ],
+    },
+  ],
   proxy: {
     '/stock': {
       target: 'https://hq.sinajs.cn',
